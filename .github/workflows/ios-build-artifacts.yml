@@ -3,8 +3,14 @@ name: iOS Build Artifacts
 on:
   push:
     branches: [main]
-  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/ios-build-artifacts.yml'
   workflow_dispatch:
+
+concurrency:
+  group: ios-build-artifacts-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -77,12 +83,11 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: ios-build-${{ github.event.pull_request.head.sha || github.sha }}
+          name: ios-build-${{ github.sha }}
           path: |
             app/build/ios/archive/*.xcarchive
-            app/build/ios/ipa/*.ipa
             ios-build.log
             ios-toolchain.log
           if-no-files-found: warn
-          retention-days: 14
-          compression-level: 0
+          retention-days: 2
+          compression-level: 6
