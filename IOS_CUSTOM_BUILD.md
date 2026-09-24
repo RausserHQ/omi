@@ -11,17 +11,21 @@ The local clone has `origin` set to `RausserHQ/omi` and `upstream` set to
 into a sync branch and open a merge-commit PR to `main`:
 
 ```bash
-git fetch upstream
+git fetch origin main
+git fetch upstream main
+git switch main
+git merge --ff-only origin/main
 git switch -c sync/upstream-2026-09-24 main
 git merge --no-edit upstream/main
 git push -u origin sync/upstream-2026-09-24
 ```
 
-Create a PR from that branch to `main` and merge it with a merge commit. Keep
-iPhone-specific changes on separate branches. After updating `main`, bring it
-into your branch with `git rebase main` (for unpublished work) or `git merge
-main`. Ordinary `git fetch`, `git merge`, and `git rebase` are all that is
-needed; no custom sync tooling is required.
+Replace the example date with a new date for each sync. Create a PR from that
+branch to `main` and merge it with a merge commit. Keep iPhone-specific changes
+on separate branches. After updating `main`, bring it into your branch with
+`git rebase main` (for unpublished work) or `git merge main`. Ordinary `git
+fetch`, `git merge`, and `git rebase` are all that is needed; no custom sync
+tooling is required.
 
 ## Build and install on an iPhone
 
