@@ -442,7 +442,7 @@ class LocalWalSyncImpl implements LocalWalSync {
     var timerStart = timerEnd - (high - low) ~/ _framesPerSecond;
     var chunkFrameCount = high - low;
 
-    bool shouldStored = SharedPreferencesUtil().unlimitedLocalStorageEnabled;
+    bool shouldStored = _custody.enabled || SharedPreferencesUtil().unlimitedLocalStorageEnabled;
     if (!shouldStored) {
       bool synced = true;
       var losses = 0;
@@ -647,9 +647,7 @@ class LocalWalSyncImpl implements LocalWalSync {
     var timerStart = timerEnd - high ~/ _framesPerSecond;
     var chunkFrameCount = high;
 
-    // Same shouldStored check as _chunk(): only store if unlimited storage enabled
-    // or if significant frame loss detected (meaning WebSocket didn't deliver them).
-    bool shouldStored = SharedPreferencesUtil().unlimitedLocalStorageEnabled;
+    bool shouldStored = _custody.enabled || SharedPreferencesUtil().unlimitedLocalStorageEnabled;
     if (!shouldStored) {
       bool synced = true;
       var losses = 0;

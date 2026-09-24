@@ -62,6 +62,8 @@ jobs:
       - name: Build unsigned iOS archive
         id: ios_build
         working-directory: app
+        env:
+          CUSTODY_ENDPOINT: ${{ github.repository == 'RausserHQ/omi' && 'https://omi-custody.apps.home.rausser.space/v1/uploads' || '' }}
         run: |
           set -o pipefail
           flutter build ipa \
@@ -71,6 +73,7 @@ jobs:
             --dart-define=OMI_APP_PROFILE=local_dev \
             --dart-define=OMI_API_BASE_URL=http://127.0.0.1:8000/ \
             --dart-define=OMI_FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+            --dart-define=OMI_CUSTODY_ENDPOINT="$CUSTODY_ENDPOINT" \
             2>&1 | tee "$GITHUB_WORKSPACE/ios-build.log"
 
       - name: Upload iOS build output and logs

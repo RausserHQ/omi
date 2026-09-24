@@ -3,12 +3,17 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:omi/backend/preferences.dart';
 import 'package:omi/backend/schema/bt_device/bt_device.dart';
 import 'package:omi/backend/schema/conversation.dart';
+import 'package:omi/services/audio_sources/audio_source.dart';
 import 'package:omi/services/wals/custody_delivery.dart';
 import 'package:omi/services/wals/local_wal_sync.dart';
-import 'package:omi/services/wals/wal_interfaces.dart';
 import 'package:omi/services/wals/wal.dart';
+import 'package:omi/services/wals/wal_interfaces.dart';
+import 'package:omi/utils/wal_file_manager.dart';
 
 class _Listener implements IWalSyncListener {
   @override
@@ -133,6 +138,75 @@ void main() {
     wal.custodyDelivered = true;
     await sync.deleteWal(wal);
     expect(await File('${dir.path}/audio.bin').exists(), false);
+  });
+
+  test('Omi-synced capture tail is persisted and delivered with custody enabled', () async {
+    SharedPreferences.setMockInitialValues({});
+    await SharedPreferencesUtil.init();
+    SharedPreferencesUtil().unlimitedLocalStorageEnabled = false;
+    await WalFileManager.init();
+
+    late LocalWalSyncImpl sync;
+    final tracer = delivery(
+      () async => sync.testWals,
+      () async {
+        if (!await WalFileManager.saveWals(sync.testWals)) throw StateError('WAL index not saved');
+      },
+      server.port,
+    );
+    sync = LocalWalSyncImpl(
+      _Listener(),
+      custodyDelivery: tracer,
+      now: () => DateTime.fromMillisecondsSinceEpoch(1700000000 * 1000),
+    );
+    final key = FrameSyncKey([1]);
+    sync.onFrameCaptured(WalFrame(payload: [1, 2], syncKey: key));
+    sync.markFrameSynced(key);
+    expect(sync.testFrameSynced, [true]);
+
+    await sync.finalizeCurrentSession();
+
+    expect(sync.testWals, hasLength(1));
+    final captured = sync.testWals.single;
+    expect(captured.status, WalStatus.synced);
+    expect(captured.storage, WalStorage.disk);
+    expect(await File((await Wal.getFilePath(captured.filePath))!).readAsBytes(), [2, 0, 0, 0, 1, 2]);
+    final recovered = await WalFileManager.loadWals();
+    expect(recovered.single.id, captured.id);
+    expect(recovered.single.custodyDelivered, false);
+
+    status = 201;
+    await tracer.drain();
+    expect(uploads, isNotEmpty);
+    expect((await WalFileManager.loadWals()).single.custodyDelivered, true);
+  });
+
+  test('Omi-synced frames crossing the chunk boundary persist with custody enabled', () async {
+    SharedPreferences.setMockInitialValues({});
+    await SharedPreferencesUtil.init();
+    SharedPreferencesUtil().unlimitedLocalStorageEnabled = false;
+    await WalFileManager.init();
+    final tracer = delivery(() async => [], () async {}, server.port);
+    final sync = LocalWalSyncImpl(
+      _Listener(),
+      custodyDelivery: tracer,
+      now: () => DateTime.fromMillisecondsSinceEpoch(1700000016 * 1000),
+    );
+    for (var i = 0; i < 1501; i++) {
+      final key = FrameSyncKey([i & 0xff, i >> 8]);
+      sync.onFrameCaptured(WalFrame(payload: [1, 2], syncKey: key));
+      sync.markFrameSynced(key);
+    }
+
+    await sync.stop();
+
+    expect(sync.testWals, hasLength(1));
+    final captured = sync.testWals.single;
+    expect(captured.status, WalStatus.synced);
+    expect(captured.storage, WalStorage.disk);
+    expect(captured.totalFrames, 1);
+    expect((await WalFileManager.loadWals()).single.id, captured.id);
+    expect(await File((await Wal.getFilePath(captured.filePath))!).readAsBytes(), [2, 0, 0, 0, 1, 2]);
   });
 
   test('ordinary builds cannot send audio to the private receiver', () {
