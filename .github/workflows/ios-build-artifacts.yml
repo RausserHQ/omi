@@ -1,0 +1,88 @@
+name: iOS Build Artifacts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-build:
+    name: iOS release archive
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.5
+          cache: true
+
+      - name: Record build toolchain
+        run: |
+          set -o pipefail
+          xcodebuild -version | tee "$GITHUB_WORKSPACE/ios-toolchain.log"
+          flutter --version | tee -a "$GITHUB_WORKSPACE/ios-toolchain.log"
+          pod --version | tee -a "$GITHUB_WORKSPACE/ios-toolchain.log"
+
+      - name: Resolve Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Prepare local development build inputs
+        working-directory: app
+        run: |
+          mkdir -p ios/Config/Dev ios/Config/Prod
+          cp lib/firebase_options_local.dart lib/firebase_options_dev.dart
+          cp lib/firebase_options_local.dart lib/firebase_options_prod.dart
+          cp setup/prebuilt/GoogleService-Info-Local.plist ios/Config/Dev/GoogleService-Info.plist
+          cp setup/prebuilt/GoogleService-Info-Local.plist ios/Config/Prod/GoogleService-Info.plist
+          cp setup/prebuilt/GoogleService-Info-Local.plist ios/Runner/GoogleService-Info.plist
+          bash scripts/generate_ios_custom_config.sh ios/Config/Dev/GoogleService-Info.plist ios/Flutter
+          echo 'APP_BUNDLE_IDENTIFIER=com.friend-app-with-wearable.ios12.development' >> ios/Flutter/Custom.xcconfig
+          {
+            echo 'API_BASE_URL='
+            echo 'USE_WEB_AUTH=true'
+            echo 'USE_AUTH_CUSTOM_TOKEN=true'
+            echo 'STAGING_API_URL='
+          } > .dev.env
+          : > .env
+
+      - name: Generate Flutter code
+        working-directory: app
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build unsigned iOS archive
+        id: ios_build
+        working-directory: app
+        run: |
+          set -o pipefail
+          flutter build ipa \
+            --release \
+            --flavor dev \
+            --no-codesign \
+            --dart-define=OMI_APP_PROFILE=local_dev \
+            --dart-define=OMI_API_BASE_URL=http://127.0.0.1:8000/ \
+            --dart-define=OMI_FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+            2>&1 | tee "$GITHUB_WORKSPACE/ios-build.log"
+
+      - name: Upload iOS build output and logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-build-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            app/build/ios/archive/*.xcarchive
+            app/build/ios/ipa/*.ipa
+            ios-build.log
+            ios-toolchain.log
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
