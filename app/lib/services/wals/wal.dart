@@ -205,6 +205,9 @@ class Wal {
 
   /// Unix timestamp (seconds) when the audio was uploaded (202 received).
   int uploadedAt;
+  String? custodyUploadId;
+  bool custodyDelivered;
+  bool custodyRejected;
 
   String get id => '${device}_$timerStart';
 
@@ -297,6 +300,9 @@ class Wal {
     this.lastRetryAt = 0,
     this.jobId,
     this.uploadedAt = 0,
+    this.custodyUploadId,
+    this.custodyDelivered = false,
+    this.custodyRejected = false,
   }) : data = data ?? [] {
     frameSize = codec.getFrameSize();
   }
@@ -329,6 +335,9 @@ class Wal {
       lastRetryAt: json['last_retry_at'] ?? 0,
       jobId: json['job_id'],
       uploadedAt: json['uploaded_at'] ?? 0,
+      custodyUploadId: json['custody_upload_id'],
+      custodyDelivered: json['custody_delivered'] == true,
+      custodyRejected: json['custody_rejected'] == true,
     );
   }
 
@@ -357,6 +366,9 @@ class Wal {
       'last_retry_at': lastRetryAt,
       'job_id': jobId,
       'uploaded_at': uploadedAt,
+      'custody_upload_id': custodyUploadId,
+      'custody_delivered': custodyDelivered,
+      'custody_rejected': custodyRejected,
     };
   }
 

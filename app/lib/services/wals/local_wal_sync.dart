@@ -12,6 +12,7 @@ import 'package:omi/backend/schema/bt_device/bt_device.dart';
 import 'package:omi/backend/schema/conversation.dart';
 import 'package:omi/backend/schema/geolocation.dart';
 import 'package:omi/services/audio_sources/audio_source.dart';
+import 'package:omi/services/wals/custody_delivery.dart';
 import 'package:omi/services/wals/wal.dart';
 import 'package:omi/services/wals/wal_interfaces.dart';
 import 'package:omi/services/wals/sync_rate_limiter.dart';
@@ -111,6 +112,16 @@ List<Wal> nextSyncUploadBatch(List<Wal> pending, int nowSeconds) {
 
 class LocalWalSyncImpl implements LocalWalSync {
   List<Wal> _wals = [];
+  late final CustodyDelivery _custody = _custodyOverride ?? CustodyDelivery(
+    load: () async {
+      await walReady;
+      return [..._wals];
+    },
+    save: () async {
+      if (!await _saveWalsToFile(_sessionGeneration)) throw StateError('WAL index not saved');
+    },
+  );
+  final CustodyDelivery? _custodyOverride;
 
   List<WalFrame> _frames = [];
   List<bool> _frameSynced = [];
@@ -190,6 +201,7 @@ class LocalWalSyncImpl implements LocalWalSync {
   @override
   void clearUserData() {
     _sessionGeneration++;
+    _custody.stop();
     cancelSync();
     // Back-fill the owner on retiring records that predate stamping, while the
     // logout path still has the signing-out uid available (clearUserData runs
@@ -240,7 +252,9 @@ class LocalWalSyncImpl implements LocalWalSync {
     Future<SyncJobFetch> Function(String jobId)? jobStatusFetcher,
     Future<void> Function(List<Wal> wals)? persistWals,
     Future<List<Wal>> Function()? loadWals,
-  })  : _uploadGateOverride = uploadGate,
+    CustodyDelivery? custodyDelivery,
+  })  : _custodyOverride = custodyDelivery,
+        _uploadGateOverride = uploadGate,
         _nowOverride = now,
         _periodicOverride = periodic,
         _jobStatusFetcherOverride = jobStatusFetcher,
@@ -292,12 +306,14 @@ class LocalWalSyncImpl implements LocalWalSync {
     _wals.add(wal);
     await _saveWalsToFile(admittedGeneration);
     _notifyUpdated(admittedGeneration);
+    _custody.schedule();
     Logger.debug("LocalWalSync: Added external WAL ${wal.id} (${wal.seconds}s)");
   }
 
   @override
   void start() {
     _initializeWals();
+    _custody.start();
     _chunkingTimer = _periodic(const Duration(seconds: chunkSizeInSeconds + newFrameSyncDelaySeconds), (t) async {
       final generation = _sessionGeneration;
       await _chunk(generation);
@@ -358,12 +374,14 @@ class LocalWalSyncImpl implements LocalWalSync {
     }
 
     if (!_walReady.isCompleted) _walReady.complete();
+    _custody.schedule();
     _notifyUpdated(generation);
   }
 
   @override
   Future stop() async {
     final generation = _sessionGeneration;
+    _custody.stop();
     _chunkingTimer?.cancel();
     _flushingTimer?.cancel();
 
@@ -536,10 +554,11 @@ class LocalWalSyncImpl implements LocalWalSync {
     }
 
     await _saveWalsToFile(generation);
+    if (flushedCount > 0) _custody.schedule();
   }
 
-  Future<void> _saveWalsToFile(int generation) async {
-    if (!_isCurrent(generation)) return;
+  Future<bool> _saveWalsToFile(int generation) async {
+    if (!_isCurrent(generation)) return false;
     // The save rewrites the whole index from memory, so every durable bucket
     // must be included: retired (logged-out) and foreign-owner (parked at
     // load) records alike — omitting either would silently delete those
@@ -548,12 +567,13 @@ class LocalWalSyncImpl implements LocalWalSync {
     Logger.debug('Saving WALs to file');
     if (_persistWalsOverride != null) {
       await _persistWalsOverride!(snapshot);
-      return;
+      return true;
     }
-    await WalFileManager.saveWals(snapshot);
+    return WalFileManager.saveWals(snapshot);
   }
 
   Future<bool> _deleteWal(Wal wal) async {
+    if (_custody.enabled && wal.storage == WalStorage.disk && !wal.custodyDelivered) return false;
     if (wal.filePath != null && wal.filePath!.isNotEmpty) {
       try {
         final fullPath = await Wal.getFilePath(wal.filePath);
