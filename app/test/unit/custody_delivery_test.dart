@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -145,12 +146,15 @@ void main() {
     await SharedPreferencesUtil.init();
     SharedPreferencesUtil().unlimitedLocalStorageEnabled = false;
     await WalFileManager.init();
+    status = 201;
 
     late LocalWalSyncImpl sync;
+    final delivered = Completer<void>();
     final tracer = delivery(
       () async => sync.testWals,
       () async {
         if (!await WalFileManager.saveWals(sync.testWals)) throw StateError('WAL index not saved');
+        if (sync.testWals.single.custodyDelivered && !delivered.isCompleted) delivered.complete();
       },
       server.port,
     );
@@ -159,6 +163,7 @@ void main() {
       custodyDelivery: tracer,
       now: () => DateTime.fromMillisecondsSinceEpoch(1700000000 * 1000),
     );
+    tracer.stop();
     final key = FrameSyncKey([1]);
     sync.onFrameCaptured(WalFrame(payload: [1, 2], syncKey: key));
     sync.markFrameSynced(key);
@@ -175,8 +180,9 @@ void main() {
     expect(recovered.single.id, captured.id);
     expect(recovered.single.custodyDelivered, false);
 
-    status = 201;
-    await tracer.drain();
+    tracer.start();
+    await delivered.future.timeout(const Duration(seconds: 10));
+    tracer.stop();
     expect(uploads, isNotEmpty);
     expect((await WalFileManager.loadWals()).single.custodyDelivered, true);
   });
