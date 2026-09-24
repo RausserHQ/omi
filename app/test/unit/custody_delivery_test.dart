@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,16 +24,26 @@ void main() {
   late Wal wal;
   late List<Wal> disk;
   late List<String> uploads;
+  late HttpOverrides? originalHttpOverrides;
   var status = 503;
 
   setUp(() async {
+    // Flutter's test binding installs an HttpClient that returns 400 for every
+    // request. These tests use a loopback server to exercise the real uploader.
+    originalHttpOverrides = HttpOverrides.current;
+    HttpOverrides.global = null;
     dir = await Directory.systemTemp.createTemp('custody_test_');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
       const MethodChannel('plugins.flutter.io/path_provider'),
       (call) async => call.method == 'getApplicationDocumentsDirectory' ? dir.path : null,
     );
-    wal = Wal(timerStart: 1700000000, codec: BleAudioCodec.opus, seconds: 30,
-        storage: WalStorage.disk, status: WalStatus.synced, filePath: 'audio.bin');
+    wal = Wal(
+        timerStart: 1700000000,
+        codec: BleAudioCodec.opus,
+        seconds: 30,
+        storage: WalStorage.disk,
+        status: WalStatus.synced,
+        filePath: 'audio.bin');
     await File('${dir.path}/audio.bin').writeAsBytes([2, 0, 0, 0, 1, 2]);
     disk = [Wal.fromJson(wal.toJson())];
     uploads = [];
@@ -58,16 +67,21 @@ void main() {
 
   tearDown(() async {
     await server.close(force: true);
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'), null);
+    HttpOverrides.global = originalHttpOverrides;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/path_provider'), null);
     await dir.delete(recursive: true);
   });
 
   CustodyDelivery delivery(Future<List<Wal>> Function() load, Future<void> Function() save, int port) =>
-      CustodyDelivery(load: load, save: save, endpoint: 'http://127.0.0.1:$port/v1/uploads', allowLoopbackForTest: true);
+      CustodyDelivery(
+          load: load, save: save, endpoint: 'http://127.0.0.1:$port/v1/uploads', allowLoopbackForTest: true);
 
   test('retry after restart keeps ID and source until acknowledgement; ACK suppresses replay', () async {
-    Future<void> save() async { disk = [Wal.fromJson(wal.toJson())]; }
+    Future<void> save() async {
+      disk = [Wal.fromJson(wal.toJson())];
+    }
+
     final first = delivery(() async => [wal], save, server.port);
     await first.drain();
     expect(wal.custodyDelivered, false);

@@ -101,34 +101,12 @@ run_install desktop-windows desktop/windows/pnpm-lock.yaml -- desktop/windows/no
 run_install mcp mcp/uv.lock mcp/pyproject.toml -- mcp/.venv/bin/python \
   bash -c 'cd mcp && uv sync --frozen'
 
-# Flutter is not in the orb base image; install the CI-pinned stable build.
-FLUTTER_VERSION="3.44.5"
-FLUTTER_ROOT="/opt/flutter"
-# /opt is root-owned in the orb; stage extraction with sudo when needed.
-FLUTTER_PARENT="/opt"
-if [ ! -w /opt ] && [ "$(id -u)" -ne 0 ]; then
-  FLUTTER_PARENT="$HOME/.local/share"
-  FLUTTER_ROOT="$FLUTTER_PARENT/flutter"
-  mkdir -p "$FLUTTER_PARENT"
-fi
-if [ ! -x "$FLUTTER_ROOT/bin/flutter" ]; then
-  step "start: flutter-$FLUTTER_VERSION"
-  (
-    set -euo pipefail
-    tgz="/tmp/flutter-$FLUTTER_VERSION-stable.tar.xz"
-    if [ ! -f "$tgz" ]; then
-      curl -fsSL --retry 3 -o "$tgz" \
-        "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
-    fi
-    tar -xJf "$tgz" -C "$FLUTTER_PARENT"
-    "$FLUTTER_ROOT/bin/flutter" --version
-    # Disable analytics/telemetry; orbs must not phone home per user config.
-    "$FLUTTER_ROOT/bin/flutter" config --no-analytics >/dev/null
-    cd "$ROOT/app" && "$FLUTTER_ROOT/bin/flutter" pub get
-  ) >"/tmp/omi-setup-flutter.log" 2>&1 &
-  PIDS+=("$!")
-fi
-[ -x "$FLUTTER_ROOT/bin/flutter" ] && step "flutter already installed at $FLUTTER_ROOT"
+# Flutter is shared with the app-only OpenHands setup.
+source "$ROOT/.agents/flutter-setup.sh"
+FLUTTER_ROOT="$(flutter_root)"
+step "start: flutter-$FLUTTER_VERSION"
+setup_flutter "$ROOT" >"/tmp/omi-setup-flutter.log" 2>&1 &
+PIDS+=("$!")
 
 FAILED=0
 for i in "${!PIDS[@]}"; do
@@ -140,20 +118,7 @@ done
 step "parallel installs joined"
 [ "$FAILED" -eq 0 ] || exit 1
 
-# Flutter CLI must reach login shells and services: symlink into PATH rather
-# than relying on this process's environment.
-if [ "$(id -u)" -eq 0 ]; then
-  ln -sfn "$FLUTTER_ROOT/bin/flutter" /usr/local/bin/flutter
-  ln -sfn "$FLUTTER_ROOT/bin/dart" /usr/local/bin/dart
-else
-  mkdir -p "$HOME/.local/bin"
-  ln -sfn "$FLUTTER_ROOT/bin/flutter" "$HOME/.local/bin/flutter"
-  ln -sfn "$FLUTTER_ROOT/bin/dart" "$HOME/.local/bin/dart"
-  case ":$PATH:" in
-    *":$HOME/.local/bin:"*) ;;
-    *) export PATH="$HOME/.local/bin:$PATH" ;;
-  esac
-fi
+step "flutter ready at $FLUTTER_ROOT"
 
 # ── Backend offline env stage (hermetic default; no API keys needed) ────────
 # load_backend_env() reads OMI_ENV_STAGE (offline when PROVIDER_MODE=offline),

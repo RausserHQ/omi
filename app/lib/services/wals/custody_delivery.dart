@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -64,8 +63,13 @@ class CustodyDelivery {
     try {
       for (final wal in await load()) {
         if (_stopped) break;
-        if (wal.storage != WalStorage.disk || wal.custodyDelivered || wal.custodyRejected || wal.filePath == null ||
-            wal.codec != BleAudioCodec.opus && wal.codec != BleAudioCodec.opusFS320 && wal.codec != BleAudioCodec.pcm16) {
+        if (wal.storage != WalStorage.disk ||
+            wal.custodyDelivered ||
+            wal.custodyRejected ||
+            wal.filePath == null ||
+            wal.codec != BleAudioCodec.opus &&
+                wal.codec != BleAudioCodec.opusFS320 &&
+                wal.codec != BleAudioCodec.pcm16) {
           continue;
         }
         try {
@@ -131,7 +135,8 @@ class CustodyDelivery {
       final body = await utf8.decoder.bind(response).join().timeout(const Duration(seconds: 10));
       if (response.statusCode != 200 && response.statusCode != 201) return response.statusCode;
       final ack = jsonDecode(body);
-      if (ack is Map && ack['upload_id'] == wal.custodyUploadId &&
+      if (ack is Map &&
+          ack['upload_id'] == wal.custodyUploadId &&
           (response.statusCode == 200 ? ack['status'] == 'duplicate' : ack['status'] == 'stored')) {
         return response.statusCode;
       }

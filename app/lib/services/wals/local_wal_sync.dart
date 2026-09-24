@@ -112,15 +112,16 @@ List<Wal> nextSyncUploadBatch(List<Wal> pending, int nowSeconds) {
 
 class LocalWalSyncImpl implements LocalWalSync {
   List<Wal> _wals = [];
-  late final CustodyDelivery _custody = _custodyOverride ?? CustodyDelivery(
-    load: () async {
-      await walReady;
-      return [..._wals];
-    },
-    save: () async {
-      if (!await _saveWalsToFile(_sessionGeneration)) throw StateError('WAL index not saved');
-    },
-  );
+  late final CustodyDelivery _custody = _custodyOverride ??
+      CustodyDelivery(
+        load: () async {
+          await walReady;
+          return [..._wals];
+        },
+        save: () async {
+          if (!await _saveWalsToFile(_sessionGeneration)) throw StateError('WAL index not saved');
+        },
+      );
   final CustodyDelivery? _custodyOverride;
 
   List<WalFrame> _frames = [];
