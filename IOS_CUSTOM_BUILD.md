@@ -7,19 +7,21 @@ work on branches so upstream syncs stay straightforward.
 ## Sync upstream
 
 The local clone has `origin` set to `RausserHQ/omi` and `upstream` set to
-`BasedHardware/omi`. To advance the fork's `main` when upstream changes:
+`BasedHardware/omi`. To advance the fork when upstream changes, merge upstream
+into a sync branch and open a merge-commit PR to `main`:
 
 ```bash
 git fetch upstream
-git switch main
-git merge --ff-only upstream/main
-git push origin main
+git switch -c sync/upstream-2026-09-24 main
+git merge --no-edit upstream/main
+git push -u origin sync/upstream-2026-09-24
 ```
 
-Keep iPhone-specific changes on a branch. After updating `main`, bring it into
-your branch with `git rebase main` (for unpublished work) or `git merge main`.
-Ordinary `git fetch`, `git merge`, and `git rebase` are all that is needed; no
-custom sync tooling is required.
+Create a PR from that branch to `main` and merge it with a merge commit. Keep
+iPhone-specific changes on separate branches. After updating `main`, bring it
+into your branch with `git rebase main` (for unpublished work) or `git merge
+main`. Ordinary `git fetch`, `git merge`, and `git rebase` are all that is
+needed; no custom sync tooling is required.
 
 ## Build and install on an iPhone
 
